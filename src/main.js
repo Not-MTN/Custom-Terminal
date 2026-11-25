@@ -36,7 +36,7 @@ function bind(){
  document.querySelector('#apply-windows').onclick=async()=>{
   const theme=themes.find(t=>t.name===selected)
   if (window.ghosty?.isDesktop) {
-   const palette=t=>({name:`Ghosty ${t.name}`,background:t.bg,foreground:t.fg,cursorColor:t.colors[2],selectionBackground:t.colors[5]+'55',black:t.bg,red:t.colors[0],green:t.colors[3],yellow:t.colors[2],blue:t.colors[4],purple:t.colors[5],cyan:t.colors[4],white:t.fg,brightBlack:t.bg,brightRed:t.colors[0],brightGreen:t.colors[3],brightYellow:t.colors[2],brightBlue:t.colors[4],brightPurple:t.colors[5],brightCyan:t.colors[4],brightWhite:t.fg})
+   const palette=t=>({name:`Ghosty ${t.name}`,background:t.bg,foreground:t.fg,cursorColor:t.colors[2],selectionBackground:t.colors[5],black:t.bg,red:t.colors[0],green:t.colors[3],yellow:t.colors[2],blue:t.colors[4],purple:t.colors[5],cyan:t.colors[4],white:t.fg,brightBlack:t.bg,brightRed:t.colors[0],brightGreen:t.colors[3],brightYellow:t.colors[2],brightBlue:t.colors[4],brightPurple:t.colors[5],brightCyan:t.colors[4],brightWhite:t.fg})
    const result=await window.ghosty.applySetup({selectedScheme:`Ghosty ${theme.name}`,theme:{red:theme.colors[0],green:theme.colors[3],yellow:theme.colors[2],blue:theme.colors[4],purple:theme.colors[5]},tools:installed,schemes:themes.map(palette)})
    toast(result.message)
    return

@@ -1,6 +1,6 @@
 # Ghosty Terminal Studio
 
-Ghosty is a Windows-focused terminal customization desktop app. It previews themes and, from its packaged Windows desktop app, can apply a selected palette to Windows Terminal, install Starship/eza/bat with WinGet, and configure the PowerShell profile. It backs up `settings.json` before changing it.
+Ghosty is a Windows-focused terminal customization desktop app. It previews themes and, from its packaged Windows desktop app, can apply a selected palette to Windows Terminal and legacy Command Prompt, install Starship/eza/bat plus Clink and a Nerd Font with WinGet, and configure both PowerShell and CMD startup. It backs up Windows Terminal `settings.json` before changing it; close and reopen existing terminal windows to load the changes.
 
 ## Build the Windows app
 

@@ -3,9 +3,13 @@ $ErrorActionPreference = 'Stop'
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw 'WinGet is required. Install or update App Installer from Microsoft Store, then run Ghosty again.' }
 $packages = @{ starship = 'Starship.Starship'; eza = 'eza-community.eza'; bat = 'sharkdp.bat' }
-# Install a Nerd Font so Starship and eza icon glyphs render in Windows Terminal.
+# Install a Nerd Font so Starship and eza icon glyphs render in terminals.
 & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --accept-package-agreements --accept-source-agreements
-if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { throw "WinGet failed to install Cascadia Code Nerd Font (exit $LASTEXITCODE)." }
+if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { Write-Warning "Nerd Font install did not complete (exit $LASTEXITCODE); icons may render as boxes." }
+if ($config.tools.starship) {
+  & winget install --id chrisant996.Clink --exact --accept-package-agreements --accept-source-agreements
+  if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { throw "WinGet failed to install Clink for Command Prompt integration (exit $LASTEXITCODE)." }
+}
 foreach ($tool in @('starship','eza','bat')) {
   if ($config.tools.$tool) {
     Write-Output "Installing $tool..."
@@ -47,6 +51,40 @@ $pattern = '(?ms)^# >>> Ghosty managed setup >>>.*?^# <<< Ghosty managed setup <
 if ($profile -match $pattern) { $profile = [regex]::Replace($profile, $pattern, '') }
 $profile = $profile.TrimEnd() + "`r`n`r`n" + $block + "`r`n"
 Set-Content -LiteralPath $profilePath -Value $profile -Encoding utf8
+if ($config.tools.starship) {
+  $clinkDir = Join-Path $env:LOCALAPPDATA 'clink'
+  New-Item -ItemType Directory -Force -Path $clinkDir | Out-Null
+  Set-Content -LiteralPath (Join-Path $clinkDir 'ghosty-starship.lua') -Value "load(io.popen('starship init cmd'):read('*a'))" -Encoding utf8
+}
+
+# Configure the classic Console Host too (the legacy cmd.exe window does not read Windows Terminal schemes).
+$selectedPalette = $config.schemes | Where-Object { $_.name -eq $config.selectedScheme } | Select-Object -First 1
+if ($selectedPalette) {
+  $consoleKeys = @('HKCU:\Console', 'HKCU:\Console\%SystemRoot%_system32_cmd.exe')
+  $colorNames = @('black','red','green','yellow','blue','purple','cyan','white','brightBlack','brightRed','brightGreen','brightYellow','brightBlue','brightPurple','brightCyan','brightWhite')
+  foreach ($key in $consoleKeys) {
+    New-Item -Path $key -Force | Out-Null
+    for ($i = 0; $i -lt $colorNames.Count; $i++) {
+      $hex = $selectedPalette.($colorNames[$i]).TrimStart('#')
+      $r = [Convert]::ToInt32($hex.Substring(0,2),16); $g = [Convert]::ToInt32($hex.Substring(2,2),16); $b = [Convert]::ToInt32($hex.Substring(4,2),16)
+      $bgr = [int]($r + ($g -shl 8) + ($b -shl 16))
+      New-ItemProperty -Path $key -Name ('ColorTable{0:D2}' -f $i) -PropertyType DWord -Value $bgr -Force | Out-Null
+    }
+    New-ItemProperty -Path $key -Name ScreenColors -PropertyType DWord -Value 7 -Force | Out-Null
+  }
+}
+
+# Add persistent doskey shortcuts to new cmd.exe windows without replacing the user's existing AutoRun command.
+$cmdMacros = @()
+if ($config.tools.eza) { $cmdMacros += 'doskey ls=eza --icons $*' }
+if ($config.tools.bat) { $cmdMacros += 'doskey cat=bat $*' }
+if ($cmdMacros.Count -gt 0) {
+  $cmdKey = 'HKCU:\Software\Microsoft\Command Processor'
+  New-Item -Path $cmdKey -Force | Out-Null
+  $autoRun = [string](Get-ItemProperty -Path $cmdKey -Name AutoRun -ErrorAction SilentlyContinue).AutoRun
+  foreach ($macro in $cmdMacros) { if (-not $autoRun.Contains($macro)) { $autoRun = (($autoRun, $macro | Where-Object { $_ }) -join ' & ') } }
+  New-ItemProperty -Path $cmdKey -Name AutoRun -PropertyType String -Value $autoRun -Force | Out-Null
+}
 
 function Remove-JsonComments([string]$text) {
   $out = [System.Text.StringBuilder]::new()
@@ -90,4 +128,4 @@ if ($settingsPath) {
 } else {
   Write-Output 'Windows Terminal settings not found; installed tools and configured PowerShell, but no Terminal palette was changed.'
 }
-Write-Output "Ghosty setup applied. Theme: $($config.selectedScheme). Restart PowerShell and Windows Terminal to see changes."
+Write-Output "Ghosty setup applied. Theme: $($config.selectedScheme). Close and reopen Command Prompt, PowerShell, and Windows Terminal to see the changes."

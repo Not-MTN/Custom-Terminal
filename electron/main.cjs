@@ -20,7 +20,7 @@ ipcMain.handle('ghosty:apply', async (_event, settings) => {
   const { response } = await dialog.showMessageBox({
     type: 'warning', buttons: ['Apply changes', 'Cancel'], defaultId: 1, cancelId: 1,
     title: 'Apply Ghosty setup?',
-    message: 'Ghosty will install the selected command-line tools and update your Windows Terminal and PowerShell configuration.',
+    message: 'Ghosty will install the selected tools and apply the theme to Windows Terminal and classic Command Prompt, then configure their prompts.',
     detail: 'Your Windows Terminal settings are backed up before editing. WinGet may show its own install prompts.',
   })
   if (response !== 0) return { ok: false, cancelled: true, message: 'No changes were made.' }
@@ -34,7 +34,15 @@ ipcMain.handle('ghosty:apply', async (_event, settings) => {
     child.on('error', err => { try { fs.unlinkSync(configPath) } catch {} resolve({ ok: false, message: err.message }) })
     child.on('close', code => {
       try { fs.unlinkSync(configPath) } catch {}
-      resolve(code === 0 ? { ok: true, message: stdout.trim() || 'Setup applied. Open a new PowerShell window to use it.' } : { ok: false, message: (stderr || stdout || `Setup failed (${code}).`).trim() })
+      const result = code === 0
+        ? { ok: true, message: stdout.trim() || 'Setup applied.' }
+        : { ok: false, message: (stderr || stdout || `Setup failed (${code}).`).trim() }
+      dialog.showMessageBox({
+        type: result.ok ? 'info' : 'error',
+        title: result.ok ? 'Ghosty setup applied' : 'Ghosty setup failed',
+        message: result.ok ? 'Your terminal setup has been updated.' : 'Ghosty could not finish applying the setup.',
+        detail: `${result.message}\\n\\nClose and reopen Command Prompt / Windows Terminal to load the changes.`,
+      }).finally(() => resolve(result))
     })
   })
 })
