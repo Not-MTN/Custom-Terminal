@@ -6,9 +6,17 @@ $packages = @{ starship = 'Starship.Starship'; eza = 'eza-community.eza'; bat = 
 # Install a Nerd Font so Starship and eza icon glyphs render in terminals.
 & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --accept-package-agreements --accept-source-agreements
 if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { Write-Warning "Nerd Font install did not complete (exit $LASTEXITCODE); icons may render as boxes." }
-if ($config.tools.starship) {
+$clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
+$clinkMessage = ''
+if ($config.tools.starship -and -not $clinkReady) {
+  Write-Output 'Installing Clink for Starship support in Command Prompt (this package may request administrator approval)...'
   & winget install --id chrisant996.Clink --exact --accept-package-agreements --accept-source-agreements
-  if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { throw "WinGet failed to install Clink for Command Prompt integration (exit $LASTEXITCODE)." }
+  $clinkExit = $LASTEXITCODE
+  $env:PATH = "$( [Environment]::GetEnvironmentVariable('PATH','Machine') );$( [Environment]::GetEnvironmentVariable('PATH','User') )"
+  $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
+  if (-not $clinkReady) {
+    $clinkMessage = "Clink could not be installed or was not available (WinGet exit $clinkExit). Theme, Starship for PowerShell, eza, and bat setup will still be applied; Command Prompt's Starship prompt needs Clink."
+  }
 }
 foreach ($tool in @('starship','eza','bat')) {
   if ($config.tools.$tool) {
@@ -51,7 +59,7 @@ $pattern = '(?ms)^# >>> Ghosty managed setup >>>.*?^# <<< Ghosty managed setup <
 if ($profile -match $pattern) { $profile = [regex]::Replace($profile, $pattern, '') }
 $profile = $profile.TrimEnd() + "`r`n`r`n" + $block + "`r`n"
 Set-Content -LiteralPath $profilePath -Value $profile -Encoding utf8
-if ($config.tools.starship) {
+if ($config.tools.starship -and $clinkReady) {
   $clinkDir = Join-Path $env:LOCALAPPDATA 'clink'
   New-Item -ItemType Directory -Force -Path $clinkDir | Out-Null
   Set-Content -LiteralPath (Join-Path $clinkDir 'ghosty-starship.lua') -Value "load(io.popen('starship init cmd'):read('*a'))" -Encoding utf8
@@ -129,3 +137,4 @@ if ($settingsPath) {
   Write-Output 'Windows Terminal settings not found; installed tools and configured PowerShell, but no Terminal palette was changed.'
 }
 Write-Output "Ghosty setup applied. Theme: $($config.selectedScheme). Close and reopen Command Prompt, PowerShell, and Windows Terminal to see the changes."
+if ($clinkMessage) { Write-Output $clinkMessage }
