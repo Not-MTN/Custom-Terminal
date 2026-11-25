@@ -1,28 +1,33 @@
 ﻿param([Parameter(Mandatory=$true)][string]$ConfigPath)
 $ErrorActionPreference = 'Stop'
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw 'WinGet is required. Install or update App Installer from Microsoft Store, then run Ghosty again.' }
+$wingetReady = [bool](Get-Command winget -ErrorAction SilentlyContinue)
 $packages = @{ starship = 'Starship.Starship'; eza = 'eza-community.eza'; bat = 'sharkdp.bat' }
+$setupWarnings = @()
+if (-not $wingetReady) { $setupWarnings += 'WinGet is unavailable. Theme and shell preferences will still be applied; CLI tools were not installed.' }
 # Install a Nerd Font so Starship and eza icon glyphs render in terminals.
-& winget install --id DEVCOM.CascadiaCodeNerdFont --exact --accept-package-agreements --accept-source-agreements
-if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { Write-Warning "Nerd Font install did not complete (exit $LASTEXITCODE); icons may render as boxes." }
+if ($wingetReady) {
+  & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --accept-package-agreements --accept-source-agreements
+  if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "Nerd Font install failed (exit $LASTEXITCODE); theme and tool setup will continue." }
+}
 $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
 $clinkMessage = ''
-if ($config.tools.starship -and -not $clinkReady) {
+if ($config.tools.starship -and -not $clinkReady -and $wingetReady) {
   Write-Output 'Installing Clink for Starship support in Command Prompt (this package may request administrator approval)...'
   & winget install --id chrisant996.Clink --exact --accept-package-agreements --accept-source-agreements
   $clinkExit = $LASTEXITCODE
   $env:PATH = "$( [Environment]::GetEnvironmentVariable('PATH','Machine') );$( [Environment]::GetEnvironmentVariable('PATH','User') )"
   $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
   if (-not $clinkReady) {
-    $clinkMessage = "Clink could not be installed or was not available (WinGet exit $clinkExit). Theme, Starship for PowerShell, eza, and bat setup will still be applied; Command Prompt's Starship prompt needs Clink."
+    $clinkMessage = "Clink could not be installed or was not available (WinGet exit $clinkExit); Command Prompt will have the theme and selected aliases, but its Starship prompt needs Clink."
+    $setupWarnings += $clinkMessage
   }
 }
 foreach ($tool in @('starship','eza','bat')) {
-  if ($config.tools.$tool) {
+  if ($config.tools.$tool -and $wingetReady) {
     Write-Output "Installing $tool..."
     & winget install --id $packages[$tool] --exact --accept-package-agreements --accept-source-agreements
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { throw "WinGet failed to install $tool (exit $LASTEXITCODE)." }
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "WinGet failed to install $tool (exit $LASTEXITCODE); the rest of the setup will continue." }
   }
 }
 
@@ -136,5 +141,7 @@ if ($settingsPath) {
 } else {
   Write-Output 'Windows Terminal settings not found; installed tools and configured PowerShell, but no Terminal palette was changed.'
 }
-Write-Output "Ghosty setup applied. Theme: $($config.selectedScheme). Close and reopen Command Prompt, PowerShell, and Windows Terminal to see the changes."
-if ($clinkMessage) { Write-Output $clinkMessage }
+Write-Output "Ghosty setup applied. Theme: $($config.selectedScheme)."
+foreach ($warningMessage in $setupWarnings) { Write-Output "WARNING: $warningMessage" }
+# Open a fresh CMD window so the selected colors and AutoRun aliases are visible immediately.
+if ($selectedPalette) { Start-Process -FilePath $env:ComSpec -ArgumentList @('/k', 'echo Ghosty setup applied. This window uses your selected theme.') }
