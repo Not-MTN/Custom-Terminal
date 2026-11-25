@@ -27,6 +27,8 @@ jobs:
           if ($errors.Count -gt 0) { $errors | Format-List; throw 'PowerShell setup script has syntax errors.' }
           $source = Get-Content scripts/apply-setup.ps1 -Raw
           if ($source -match 'winget\s+install|--disable-interactivity') { throw 'Setup must not invoke WinGet; it uses verified portable release assets.' }
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/portable-tools.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; throw 'Portable installer has syntax errors.' }
           if ($source -match '\$profile\s*=') { throw 'Do not shadow the automatic $PROFILE variable.' }
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
