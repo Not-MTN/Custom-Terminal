@@ -1,5 +1,11 @@
 ﻿param([Parameter(Mandatory=$true)][string]$ConfigPath)
 $ErrorActionPreference = 'Stop'
+trap {
+  $failureLine = $_.InvocationInfo.ScriptLineNumber
+  $failureSource = $_.InvocationInfo.Line
+  [Console]::Error.WriteLine("Ghosty apply script failed at line ${failureLine}: $failureSource`n$($_.Exception.Message)")
+  exit 1
+}
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 Write-Output 'Ghosty: applying selected theme and tools.'
 $wingetReady = [bool](Get-Command winget -ErrorAction SilentlyContinue)
@@ -8,19 +14,27 @@ $setupWarnings = @()
 if (-not $wingetReady) { $setupWarnings += 'WinGet is unavailable. Theme and shell preferences will still be applied; CLI tools were not installed.' }
 # Install a Nerd Font so Starship and eza icon glyphs render in terminals.
 if ($wingetReady) {
-  & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --accept-package-agreements --accept-source-agreements
+  & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
   if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "Nerd Font install failed (exit $LASTEXITCODE); theme and tool setup will continue." }
 }
 $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
 $clinkMessage = ''
 if ($config.tools.starship -and -not $clinkReady -and $wingetReady) {
-  Write-Output 'Installing Clink for Starship support in Command Prompt (this package may request administrator approval)...'
-  & winget install --id chrisant996.Clink --exact --accept-package-agreements --accept-source-agreements
-  $clinkExit = $LASTEXITCODE
-  $env:PATH = "$( [Environment]::GetEnvironmentVariable('PATH','Machine') );$( [Environment]::GetEnvironmentVariable('PATH','User') )"
-  $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
-  if (-not $clinkReady) {
-    $clinkMessage = "Clink could not be installed or was not available (WinGet exit $clinkExit); Command Prompt will have the theme and selected aliases, but its Starship prompt needs Clink."
+  try {
+    Write-Output 'Installing Clink for Starship support in Command Prompt (this package may request administrator approval)...'
+    & winget install --id chrisant996.Clink --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+    $clinkExit = $LASTEXITCODE
+    $machinePath = [string][Environment]::GetEnvironmentVariable('PATH','Machine')
+    $userEnvPath = [string][Environment]::GetEnvironmentVariable('PATH','User')
+    $env:PATH = (@($machinePath, $userEnvPath, $env:PATH) | Where-Object { $_ }) -join ';'
+    $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
+    if (-not $clinkReady) {
+      $clinkMessage = "Clink could not be installed or was not available (WinGet exit $clinkExit); Command Prompt will have the theme and selected aliases, but its Starship prompt needs Clink."
+      $setupWarnings += $clinkMessage
+    }
+  } catch {
+    $clinkReady = $false
+    $clinkMessage = "Clink setup was skipped: $($_.Exception.Message). Other Ghosty changes will continue."
     $setupWarnings += $clinkMessage
   }
 }
@@ -62,7 +76,7 @@ foreach ($tool in @('starship','eza','bat')) {
   $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
   if (-not $installed -and $wingetReady) {
     Write-Output "Installing $tool with WinGet..."
-    & winget install --id $packages[$tool] --exact --accept-package-agreements --accept-source-agreements
+    & winget install --id $packages[$tool] --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "WinGet could not install $tool (exit $LASTEXITCODE); trying its official portable release." }
     $env:PATH = "$( [Environment]::GetEnvironmentVariable('PATH','Machine') );$( [Environment]::GetEnvironmentVariable('PATH','User') )"
     $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
