@@ -14,7 +14,7 @@ $setupWarnings = @()
 if (-not $wingetReady) { $setupWarnings += 'WinGet is unavailable. Theme and shell preferences will still be applied; CLI tools were not installed.' }
 # Install a Nerd Font so Starship and eza icon glyphs render in terminals.
 if ($wingetReady) {
-  & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+  & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --silent --accept-package-agreements --accept-source-agreements
   if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "Nerd Font install failed (exit $LASTEXITCODE); theme and tool setup will continue." }
 }
 $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
@@ -22,7 +22,7 @@ $clinkMessage = ''
 if ($config.tools.starship -and -not $clinkReady -and $wingetReady) {
   try {
     Write-Output 'Installing Clink for Starship support in Command Prompt (this package may request administrator approval)...'
-    & winget install --id chrisant996.Clink --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+    & winget install --id chrisant996.Clink --exact --silent --accept-package-agreements --accept-source-agreements
     $clinkExit = $LASTEXITCODE
     $machinePath = [string][Environment]::GetEnvironmentVariable('PATH','Machine')
     $userEnvPath = [string][Environment]::GetEnvironmentVariable('PATH','User')
@@ -76,7 +76,7 @@ foreach ($tool in @('starship','eza','bat')) {
   $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
   if (-not $installed -and $wingetReady) {
     Write-Output "Installing $tool with WinGet..."
-    & winget install --id $packages[$tool] --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+    & winget install --id $packages[$tool] --exact --silent --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "WinGet could not install $tool (exit $LASTEXITCODE); trying its official portable release." }
     $env:PATH = "$( [Environment]::GetEnvironmentVariable('PATH','Machine') );$( [Environment]::GetEnvironmentVariable('PATH','User') )"
     $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
@@ -108,8 +108,11 @@ $profilePath = $PROFILE
 $profileDir = Split-Path -Parent $profilePath
 New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
 if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Path $profilePath | Out-Null }
-$profile = ''
-if (Test-Path $profilePath) { $profile = [string](Get-Content -LiteralPath $profilePath -Raw) }
+$profileContents = ''
+if (Test-Path $profilePath) {
+  $existingProfile = Get-Content -LiteralPath $profilePath -Raw -ErrorAction SilentlyContinue
+  if ($null -ne $existingProfile) { $profileContents = [string]$existingProfile }
+}
 $block = @'
 # >>> Ghosty managed setup >>>
 if (Get-Command starship -ErrorAction SilentlyContinue) { Invoke-Expression (&starship init powershell) }
@@ -118,9 +121,9 @@ if (Get-Command bat -ErrorAction SilentlyContinue) { Set-Alias -Name cat -Value 
 # <<< Ghosty managed setup <<<
 '@
 $pattern = '(?ms)^# >>> Ghosty managed setup >>>.*?^# <<< Ghosty managed setup <<<\s*'
-if ($profile -match $pattern) { $profile = [regex]::Replace($profile, $pattern, '') }
-$profile = $profile.TrimEnd() + "`r`n`r`n" + $block + "`r`n"
-Set-Content -LiteralPath $profilePath -Value $profile -Encoding utf8
+if ($profileContents -match $pattern) { $profileContents = [regex]::Replace($profileContents, $pattern, '') }
+$profileContents = ([string]$profileContents).TrimEnd() + "`r`n`r`n" + $block + "`r`n"
+Set-Content -LiteralPath $profilePath -Value $profileContents -Encoding utf8
 if ($config.tools.starship -and $clinkReady) {
   $clinkDir = Join-Path $env:LOCALAPPDATA 'clink'
   New-Item -ItemType Directory -Force -Path $clinkDir | Out-Null

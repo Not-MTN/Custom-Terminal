@@ -11,7 +11,7 @@ npm install
 npm run dist:win
 ```
 
-The portable app is written to `release/Ghosty-1.0.5.exe`. Download and launch it, choose a theme and tools, then use **Apply to Windows** and confirm the native confirmation dialog. It applies colors to Windows Terminal and classic Console Host, falling back to official, SHA-256-checked GitHub release archives if WinGet cannot install a tool. Close existing terminal windows; Ghosty opens a fresh Command Prompt when the apply step finishes.
+The portable app is written to `release/Ghosty-1.0.6.exe`. Download and launch it, choose a theme and tools, then use **Apply to Windows** and confirm the native confirmation dialog. It applies colors to Windows Terminal and classic Console Host, falling back to official, SHA-256-checked GitHub release archives if WinGet cannot install a tool. Close existing terminal windows; Ghosty opens a fresh Command Prompt when the apply step finishes.
 
 ## Development
 
