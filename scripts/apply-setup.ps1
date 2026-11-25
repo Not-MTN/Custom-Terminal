@@ -23,11 +23,51 @@ if ($config.tools.starship -and -not $clinkReady -and $wingetReady) {
     $setupWarnings += $clinkMessage
   }
 }
+function Install-PortableTool([string]$tool) {
+  $repos = @{ starship = 'starship/starship'; eza = 'eza-community/eza'; bat = 'sharkdp/bat' }
+  $patterns = @{
+    starship = '^starship-x86_64-pc-windows-msvc\.zip$'
+    eza = '^eza\.exe_x86_64-pc-windows-gnu\.zip$'
+    bat = '^bat-v.*x86_64-pc-windows-(gnu|msvc)\.zip$'
+  }
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$($repos[$tool])/releases/latest" -Headers @{ 'User-Agent' = 'Ghosty-Terminal-Studio' }
+  $asset = $release.assets | Where-Object { $_.name -match $patterns[$tool] } | Select-Object -First 1
+  if (-not $asset) { throw "No Windows x64 release archive found for $tool." }
+  $binDir = Join-Path $env:LOCALAPPDATA 'Ghosty/bin'
+  $tempDir = Join-Path $env:TEMP "ghosty-$tool-$([guid]::NewGuid().ToString('N'))"
+  New-Item -ItemType Directory -Force -Path $tempDir,$binDir | Out-Null
+  $archive = Join-Path $tempDir $asset.name
+  Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -UseBasicParsing
+  if ($asset.digest -match '^sha256:(.+)$') {
+    $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $Matches[1].ToLowerInvariant()) { throw "SHA-256 verification failed for $tool." }
+  }
+  $extractDir = Join-Path $tempDir 'unpacked'
+  Expand-Archive -LiteralPath $archive -DestinationPath $extractDir -Force
+  $exe = Get-ChildItem -LiteralPath $extractDir -Filter "$tool.exe" -Recurse | Select-Object -First 1
+  if (-not $exe) { throw "$tool.exe was missing from the official release archive." }
+  Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $binDir "$tool.exe") -Force
+  $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+  if (($userPath -split ';') -notcontains $binDir) { [Environment]::SetEnvironmentVariable('Path', (($userPath.TrimEnd(';') + ';' + $binDir).TrimStart(';')), 'User') }
+  $env:PATH = "$binDir;$env:PATH"
+  Remove-Item -LiteralPath $tempDir -Recurse -Force
+  Write-Output "$tool installed from its official portable release."
+}
+
 foreach ($tool in @('starship','eza','bat')) {
-  if ($config.tools.$tool -and $wingetReady) {
-    Write-Output "Installing $tool..."
+  if (-not $config.tools.$tool) { continue }
+  $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
+  if (-not $installed -and $wingetReady) {
+    Write-Output "Installing $tool with WinGet..."
     & winget install --id $packages[$tool] --exact --accept-package-agreements --accept-source-agreements
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "WinGet failed to install $tool (exit $LASTEXITCODE); the rest of the setup will continue." }
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "WinGet could not install $tool (exit $LASTEXITCODE); trying its official portable release." }
+    $env:PATH = "$( [Environment]::GetEnvironmentVariable('PATH','Machine') );$( [Environment]::GetEnvironmentVariable('PATH','User') )"
+    $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
+  }
+  if (-not $installed) {
+    try { Install-PortableTool $tool }
+    catch { $setupWarnings += "Could not install $tool from its official release: $($_.Exception.Message)" }
   }
 }
 

@@ -11,7 +11,7 @@ npm install
 npm run dist:win
 ```
 
-The portable app is written to `release/Ghosty-1.0.0.exe`. Download and launch it, choose a theme and tools, then use **Apply to Windows** and confirm the native confirmation dialog. The app needs Windows Terminal and WinGet for all features; WinGet may show package prompts. Reopen PowerShell and Windows Terminal after applying.
+The portable app is written to `release/Ghosty-1.0.2.exe`. Download and launch it, choose a theme and tools, then use **Apply to Windows** and confirm the native confirmation dialog. The app needs Windows Terminal and WinGet for all features; WinGet may show package prompts. Reopen PowerShell and Windows Terminal after applying.
 
 ## Development
 
