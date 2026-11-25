@@ -1,6 +1,7 @@
 ﻿param([Parameter(Mandatory=$true)][string]$ConfigPath)
 $ErrorActionPreference = 'Stop'
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+Write-Output 'Ghosty: applying selected theme and tools.'
 $wingetReady = [bool](Get-Command winget -ErrorAction SilentlyContinue)
 $packages = @{ starship = 'Starship.Starship'; eza = 'eza-community.eza'; bat = 'sharkdp.bat' }
 $setupWarnings = @()
@@ -48,8 +49,9 @@ function Install-PortableTool([string]$tool) {
   $exe = Get-ChildItem -LiteralPath $extractDir -Filter "$tool.exe" -Recurse | Select-Object -First 1
   if (-not $exe) { throw "$tool.exe was missing from the official release archive." }
   Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $binDir "$tool.exe") -Force
-  $userPath = [Environment]::GetEnvironmentVariable('Path','User')
-  if (($userPath -split ';') -notcontains $binDir) { [Environment]::SetEnvironmentVariable('Path', (($userPath.TrimEnd(';') + ';' + $binDir).TrimStart(';')), 'User') }
+  $userPath = [string][Environment]::GetEnvironmentVariable('Path','User')
+  $pathEntries = @($userPath -split ';' | Where-Object { $_ })
+  if ($pathEntries -notcontains $binDir) { [Environment]::SetEnvironmentVariable('Path', (($pathEntries + $binDir) -join ';'), 'User') }
   $env:PATH = "$binDir;$env:PATH"
   Remove-Item -LiteralPath $tempDir -Recurse -Force
   Write-Output "$tool installed from its official portable release."
@@ -92,7 +94,8 @@ $profilePath = $PROFILE
 $profileDir = Split-Path -Parent $profilePath
 New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
 if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Path $profilePath | Out-Null }
-$profile = Get-Content -LiteralPath $profilePath -Raw
+$profile = ''
+if (Test-Path $profilePath) { $profile = [string](Get-Content -LiteralPath $profilePath -Raw) }
 $block = @'
 # >>> Ghosty managed setup >>>
 if (Get-Command starship -ErrorAction SilentlyContinue) { Invoke-Expression (&starship init powershell) }
@@ -134,8 +137,11 @@ if ($config.tools.bat) { $cmdMacros += 'doskey cat=bat $*' }
 if ($cmdMacros.Count -gt 0) {
   $cmdKey = 'HKCU:\Software\Microsoft\Command Processor'
   New-Item -Path $cmdKey -Force | Out-Null
-  $autoRun = [string](Get-ItemProperty -Path $cmdKey -Name AutoRun -ErrorAction SilentlyContinue).AutoRun
-  foreach ($macro in $cmdMacros) { if (-not $autoRun.Contains($macro)) { $autoRun = (($autoRun, $macro | Where-Object { $_ }) -join ' & ') } }
+  $autoRun = [string]((Get-ItemProperty -Path $cmdKey -Name AutoRun -ErrorAction SilentlyContinue).AutoRun)
+  foreach ($macro in $cmdMacros) {
+    if ([string]::IsNullOrEmpty($autoRun)) { $autoRun = $macro }
+    elseif (-not $autoRun.Contains($macro)) { $autoRun = "$autoRun & $macro" }
+  }
   New-ItemProperty -Path $cmdKey -Name AutoRun -PropertyType String -Value $autoRun -Force | Out-Null
 }
 

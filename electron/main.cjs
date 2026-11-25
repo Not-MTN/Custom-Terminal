@@ -36,12 +36,12 @@ ipcMain.handle('ghosty:apply', async (_event, settings) => {
       try { fs.unlinkSync(configPath) } catch {}
       const result = code === 0
         ? { ok: true, message: stdout.trim() || 'Setup applied.' }
-        : { ok: false, message: (stderr || stdout || `Setup failed (${code}).`).trim() }
+        : { ok: false, message: (stdout + (stderr ? `\n${stderr}` : '') || `Setup failed (${code}).`).trim() }
       dialog.showMessageBox({
         type: result.ok ? 'info' : 'error',
         title: result.ok ? 'Ghosty setup applied' : 'Ghosty setup failed',
         message: result.ok ? 'Your terminal setup has been updated.' : 'Ghosty could not finish applying the setup.',
-        detail: `${result.message}\\n\\nClose and reopen Command Prompt / Windows Terminal to load the changes.`,
+        detail: `${result.message}\n\nClose and reopen Command Prompt / Windows Terminal to load the changes.`,
       }).finally(() => resolve(result))
     })
   })
