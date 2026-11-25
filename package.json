@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "app:dev": "npm run build && electron .",
-    "dist:win": "npm run build && electron-builder --win nsis"
+    "dist:win": "npm run build && electron-builder --win portable"
   },
   "devDependencies": {
     "electron": "^34.0.0",
@@ -35,16 +35,9 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "portable"
       ],
-      "artifactName": "Ghosty-Setup-${version}.${ext}"
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "artifactName": "Ghosty-${version}.${ext}"
     }
   },
   "description": "Windows terminal theme and CLI customization app",
