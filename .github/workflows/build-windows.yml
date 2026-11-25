@@ -18,10 +18,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Parse PowerShell setup script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/apply-setup.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; throw 'PowerShell setup script has syntax errors.' }
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghosty-Windows-v1.0.3
+          name: Ghosty-Windows-v1.0.4
           path: release/Ghosty-*.exe
           if-no-files-found: error
           retention-days: 30

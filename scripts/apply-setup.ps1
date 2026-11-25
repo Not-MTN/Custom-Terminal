@@ -118,15 +118,23 @@ $selectedPalette = $config.schemes | Where-Object { $_.name -eq $config.selected
 if ($selectedPalette) {
   $consoleKeys = @('HKCU:\Console', 'HKCU:\Console\%SystemRoot%_system32_cmd.exe')
   $colorNames = @('black','red','green','yellow','blue','purple','cyan','white','brightBlack','brightRed','brightGreen','brightYellow','brightBlue','brightPurple','brightCyan','brightWhite')
-  foreach ($key in $consoleKeys) {
-    New-Item -Path $key -Force | Out-Null
-    for ($i = 0; $i -lt $colorNames.Count; $i++) {
-      $hex = $selectedPalette.($colorNames[$i]).TrimStart('#')
-      $r = [Convert]::ToInt32($hex.Substring(0,2),16); $g = [Convert]::ToInt32($hex.Substring(2,2),16); $b = [Convert]::ToInt32($hex.Substring(4,2),16)
-      $bgr = [int]($r + ($g -shl 8) + ($b -shl 16))
-      New-ItemProperty -Path $key -Name ('ColorTable{0:D2}' -f $i) -PropertyType DWord -Value $bgr -Force | Out-Null
+  $validPalette = $true
+  foreach ($colorName in $colorNames) {
+    $colorValue = [string]$selectedPalette.($colorName)
+    if ($colorValue -notmatch '^#[0-9A-Fa-f]{6}$') { $validPalette = $false; break }
+  }
+  if (-not $validPalette) { $setupWarnings += "The selected palette '$($config.selectedScheme)' is incomplete; console colors were skipped." }
+  if ($validPalette) {
+    foreach ($key in $consoleKeys) {
+      New-Item -Path $key -Force | Out-Null
+      for ($i = 0; $i -lt $colorNames.Count; $i++) {
+        $hex = ([string]$selectedPalette.($colorNames[$i])).TrimStart('#')
+        $r = [Convert]::ToInt32($hex.Substring(0,2),16); $g = [Convert]::ToInt32($hex.Substring(2,2),16); $b = [Convert]::ToInt32($hex.Substring(4,2),16)
+        $bgr = [int]($r + ($g -shl 8) + ($b -shl 16))
+        New-ItemProperty -Path $key -Name ('ColorTable{0:D2}' -f $i) -PropertyType DWord -Value $bgr -Force | Out-Null
+      }
+      New-ItemProperty -Path $key -Name ScreenColors -PropertyType DWord -Value 7 -Force | Out-Null
     }
-    New-ItemProperty -Path $key -Name ScreenColors -PropertyType DWord -Value 7 -Force | Out-Null
   }
 }
 
@@ -190,4 +198,6 @@ if ($settingsPath) {
 Write-Output "Ghosty setup applied. Theme: $($config.selectedScheme)."
 foreach ($warningMessage in $setupWarnings) { Write-Output "WARNING: $warningMessage" }
 # Open a fresh CMD window so the selected colors and AutoRun aliases are visible immediately.
-if ($selectedPalette) { Start-Process -FilePath $env:ComSpec -ArgumentList @('/k', 'echo Ghosty setup applied. This window uses your selected theme.') }
+if ($selectedPalette -and $env:ComSpec -and (Test-Path $env:ComSpec)) {
+  Start-Process -FilePath $env:ComSpec -ArgumentList @('/k', 'echo Ghosty setup applied. This window uses your selected theme.')
+}
