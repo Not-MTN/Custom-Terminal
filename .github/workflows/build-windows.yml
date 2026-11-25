@@ -26,12 +26,12 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/apply-setup.ps1", [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Format-List; throw 'PowerShell setup script has syntax errors.' }
           $source = Get-Content scripts/apply-setup.ps1 -Raw
-          if ($source -match '--disable-interactivity') { throw 'Unsupported WinGet option detected.' }
+          if ($source -match 'winget\s+install|--disable-interactivity') { throw 'Setup must not invoke WinGet; it uses verified portable release assets.' }
           if ($source -match '\$profile\s*=') { throw 'Do not shadow the automatic $PROFILE variable.' }
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghosty-Windows-v1.0.6
+          name: Ghosty-Windows-v1.0.7
           path: release/Ghosty-*.exe
           if-no-files-found: error
           retention-days: 30

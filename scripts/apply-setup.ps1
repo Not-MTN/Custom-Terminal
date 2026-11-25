@@ -8,36 +8,25 @@ trap {
 }
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 Write-Output 'Ghosty: applying selected theme and tools.'
-$wingetReady = [bool](Get-Command winget -ErrorAction SilentlyContinue)
-$packages = @{ starship = 'Starship.Starship'; eza = 'eza-community.eza'; bat = 'sharkdp.bat' }
 $setupWarnings = @()
-if (-not $wingetReady) { $setupWarnings += 'WinGet is unavailable. Theme and shell preferences will still be applied; CLI tools were not installed.' }
-# Install a Nerd Font so Starship and eza icon glyphs render in terminals.
-if ($wingetReady) {
-  & winget install --id DEVCOM.CascadiaCodeNerdFont --exact --silent --accept-package-agreements --accept-source-agreements
-  if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "Nerd Font install failed (exit $LASTEXITCODE); theme and tool setup will continue." }
+$binDir = Join-Path $env:LOCALAPPDATA 'Ghosty/bin'
+New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+
+function Add-GhostyBinToPath([string]$directory) {
+  $userPath = [string][Environment]::GetEnvironmentVariable('Path','User')
+  $pathEntries = @($userPath -split ';' | Where-Object { $_ -and $_ -ne $directory })
+  [Environment]::SetEnvironmentVariable('Path', (($directory + $pathEntries) -join ';'), 'User')
+  $env:PATH = "$directory;$env:PATH"
 }
-$clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
-$clinkMessage = ''
-if ($config.tools.starship -and -not $clinkReady -and $wingetReady) {
-  try {
-    Write-Output 'Installing Clink for Starship support in Command Prompt (this package may request administrator approval)...'
-    & winget install --id chrisant996.Clink --exact --silent --accept-package-agreements --accept-source-agreements
-    $clinkExit = $LASTEXITCODE
-    $machinePath = [string][Environment]::GetEnvironmentVariable('PATH','Machine')
-    $userEnvPath = [string][Environment]::GetEnvironmentVariable('PATH','User')
-    $env:PATH = (@($machinePath, $userEnvPath, $env:PATH) | Where-Object { $_ }) -join ';'
-    $clinkReady = [bool](Get-Command clink -ErrorAction SilentlyContinue)
-    if (-not $clinkReady) {
-      $clinkMessage = "Clink could not be installed or was not available (WinGet exit $clinkExit); Command Prompt will have the theme and selected aliases, but its Starship prompt needs Clink."
-      $setupWarnings += $clinkMessage
-    }
-  } catch {
-    $clinkReady = $false
-    $clinkMessage = "Clink setup was skipped: $($_.Exception.Message). Other Ghosty changes will continue."
-    $setupWarnings += $clinkMessage
+
+function Verify-AssetDigest($asset, [string]$filePath, [string]$label) {
+  if ($asset.digest -match '^sha256:(.+)$') {
+    $expected = [string]$Matches[1]
+    $actual = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash
+    if (-not [string]::Equals($actual, $expected, [System.StringComparison]::OrdinalIgnoreCase)) { throw "SHA-256 verification failed for $label." }
   }
 }
+
 function Install-PortableTool([string]$tool) {
   $repos = @{ starship = 'starship/starship'; eza = 'eza-community/eza'; bat = 'sharkdp/bat' }
   $patterns = @{
@@ -49,42 +38,87 @@ function Install-PortableTool([string]$tool) {
   $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$($repos[$tool])/releases/latest" -Headers @{ 'User-Agent' = 'Ghosty-Terminal-Studio' }
   $asset = $release.assets | Where-Object { $_.name -match $patterns[$tool] } | Select-Object -First 1
   if (-not $asset) { throw "No Windows x64 release archive found for $tool." }
-  $binDir = Join-Path $env:LOCALAPPDATA 'Ghosty/bin'
   $tempDir = Join-Path $env:TEMP "ghosty-$tool-$([guid]::NewGuid().ToString('N'))"
-  New-Item -ItemType Directory -Force -Path $tempDir,$binDir | Out-Null
-  $archive = Join-Path $tempDir $asset.name
-  Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -UseBasicParsing
-  if ($asset.digest -match '^sha256:(.+)$') {
-    $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -ne $Matches[1].ToLowerInvariant()) { throw "SHA-256 verification failed for $tool." }
+  New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+  try {
+    $archive = Join-Path $tempDir $asset.name
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -UseBasicParsing
+    Verify-AssetDigest $asset $archive $tool
+    $extractDir = Join-Path $tempDir 'unpacked'
+    Expand-Archive -LiteralPath $archive -DestinationPath $extractDir -Force
+    $exe = Get-ChildItem -LiteralPath $extractDir -Filter "$tool.exe" -Recurse | Select-Object -First 1
+    if (-not $exe) { throw "$tool.exe was missing from the official release archive." }
+    Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $binDir "$tool.exe") -Force
+    Add-GhostyBinToPath $binDir
+    Write-Output "$tool installed from its official portable release."
+  } finally {
+    if (Test-Path $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
   }
-  $extractDir = Join-Path $tempDir 'unpacked'
-  Expand-Archive -LiteralPath $archive -DestinationPath $extractDir -Force
-  $exe = Get-ChildItem -LiteralPath $extractDir -Filter "$tool.exe" -Recurse | Select-Object -First 1
-  if (-not $exe) { throw "$tool.exe was missing from the official release archive." }
-  Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $binDir "$tool.exe") -Force
-  $userPath = [string][Environment]::GetEnvironmentVariable('Path','User')
-  $pathEntries = @($userPath -split ';' | Where-Object { $_ })
-  if ($pathEntries -notcontains $binDir) { [Environment]::SetEnvironmentVariable('Path', (($pathEntries + $binDir) -join ';'), 'User') }
-  $env:PATH = "$binDir;$env:PATH"
-  Remove-Item -LiteralPath $tempDir -Recurse -Force
-  Write-Output "$tool installed from its official portable release."
+}
+
+function Install-PortableClink {
+  $clinkDir = Join-Path $env:LOCALAPPDATA 'Ghosty/clink'
+  $loader = Join-Path $clinkDir 'clink.bat'
+  if (-not (Test-Path $loader)) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/chrisant996/clink/releases/latest' -Headers @{ 'User-Agent' = 'Ghosty-Terminal-Studio' }
+    $asset = $release.assets | Where-Object { $_.name -match '^clink\..+\.zip$' -and $_.name -notmatch 'symbols' } | Select-Object -First 1
+    if (-not $asset) { throw 'No official Clink Windows ZIP was found.' }
+    $tempDir = Join-Path $env:TEMP "ghosty-clink-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Force -Path $tempDir,$clinkDir | Out-Null
+    try {
+      $archive = Join-Path $tempDir $asset.name
+      Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -UseBasicParsing
+      Verify-AssetDigest $asset $archive 'Clink'
+      Expand-Archive -LiteralPath $archive -DestinationPath $clinkDir -Force
+    } finally {
+      if (Test-Path $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+  }
+  if (-not (Test-Path $loader)) { throw 'clink.bat was not found in the official Clink archive.' }
+  & $loader autorun install
+  if ($LASTEXITCODE -ne 0) { throw "Clink autorun registration failed (exit $LASTEXITCODE)." }
+  Write-Output 'Clink installed and enabled for Command Prompt.'
+}
+
+function Install-GhostyNerdFont {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $api = 'https://api.github.com/repos/ryanoasis/nerd-fonts/contents/patched-fonts/CascadiaCode/CaskaydiaCoveNerdFontMono-Regular.ttf'
+  $fontInfo = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'Ghosty-Terminal-Studio' }
+  $fontDir = Join-Path $env:LOCALAPPDATA 'Microsoft/Windows/Fonts'
+  New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
+  $fontPath = Join-Path $fontDir 'CaskaydiaCoveNerdFontMono-Regular.ttf'
+  Invoke-WebRequest -Uri $fontInfo.download_url -OutFile $fontPath -UseBasicParsing
+  $bytes = [IO.File]::ReadAllBytes($fontPath)
+  $header = [Text.Encoding]::ASCII.GetBytes("blob $($bytes.Length)`0")
+  $blob = New-Object byte[] ($header.Length + $bytes.Length)
+  [Array]::Copy($header, 0, $blob, 0, $header.Length)
+  [Array]::Copy($bytes, 0, $blob, $header.Length, $bytes.Length)
+  $sha1 = [Security.Cryptography.SHA1]::Create()
+  try { $actual = [BitConverter]::ToString($sha1.ComputeHash($blob)).Replace('-','').ToLowerInvariant() } finally { $sha1.Dispose() }
+  if (-not [string]::Equals($actual, [string]$fontInfo.sha, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Nerd Font Git blob verification failed.' }
+  $fontKey = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
+  New-Item -Path $fontKey -Force | Out-Null
+  New-ItemProperty -Path $fontKey -Name 'CaskaydiaCove Nerd Font Mono Regular (TrueType)' -PropertyType String -Value $fontPath -Force | Out-Null
+  Write-Output 'CaskaydiaCove Nerd Font installed for this Windows user.'
 }
 
 foreach ($tool in @('starship','eza','bat')) {
   if (-not $config.tools.$tool) { continue }
-  $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
-  if (-not $installed -and $wingetReady) {
-    Write-Output "Installing $tool with WinGet..."
-    & winget install --id $packages[$tool] --exact --silent --accept-package-agreements --accept-source-agreements
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $setupWarnings += "WinGet could not install $tool (exit $LASTEXITCODE); trying its official portable release." }
-    $env:PATH = "$( [Environment]::GetEnvironmentVariable('PATH','Machine') );$( [Environment]::GetEnvironmentVariable('PATH','User') )"
-    $installed = [bool](Get-Command "${tool}.exe" -ErrorAction SilentlyContinue)
-  }
-  if (-not $installed) {
+  $toolPath = Join-Path $binDir "${tool}.exe"
+  if (-not (Test-Path $toolPath)) {
     try { Install-PortableTool $tool }
-    catch { $setupWarnings += "Could not install $tool from its official release: $($_.Exception.Message)" }
-  }
+    catch { $setupWarnings += "Could not install $tool: $($_.Exception.Message)" }
+  } else { Write-Output "$tool is already installed in Ghosty's user bin." }
+}
+
+if ($config.tools.starship) {
+  try { Install-PortableClink }
+  catch { $setupWarnings += "CMD Starship integration unavailable: $($_.Exception.Message)" }
+}
+if ($config.tools.starship -or $config.tools.eza -or $config.tools.bat) {
+  try { Install-GhostyNerdFont }
+  catch { $setupWarnings += "Nerd Font install skipped: $($_.Exception.Message)" }
 }
 
 $theme = $config.theme
@@ -205,7 +239,7 @@ if ($settingsPath) {
   if (-not $settings.profiles.defaults) { $settings.profiles | Add-Member -NotePropertyName defaults -NotePropertyValue ([pscustomobject]@{}) -Force }
   $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue $config.selectedScheme -Force
   if (-not $settings.profiles.defaults.font) { $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([pscustomobject]@{}) -Force }
-  $settings.profiles.defaults.font | Add-Member -NotePropertyName face -NotePropertyValue 'CaskaydiaCove Nerd Font' -Force
+  $settings.profiles.defaults.font | Add-Member -NotePropertyName face -NotePropertyValue 'CaskaydiaCove Nerd Font Mono' -Force
   $json = ConvertTo-Json -InputObject $settings -Depth 100
   Set-Content -LiteralPath $settingsPath -Value $json -Encoding utf8
   Write-Output "Windows Terminal themed: $($config.selectedScheme). Backup: $backup"
@@ -216,5 +250,5 @@ Write-Output "Ghosty setup applied. Theme: $($config.selectedScheme)."
 foreach ($warningMessage in $setupWarnings) { Write-Output "WARNING: $warningMessage" }
 # Open a fresh CMD window so the selected colors and AutoRun aliases are visible immediately.
 if ($selectedPalette -and $env:ComSpec -and (Test-Path $env:ComSpec)) {
-  Start-Process -FilePath $env:ComSpec -ArgumentList @('/k', 'echo Ghosty setup applied. This window uses your selected theme.')
+  Start-Process -FilePath $env:ComSpec -WorkingDirectory $HOME -ArgumentList @('/k', 'echo Ghosty setup applied. This window uses your selected theme.')
 }
